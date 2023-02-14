@@ -1,17 +1,12 @@
 import matplotlib.pyplot as plt
 import argparse
 import os
-import DataProcessor as dp
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.metrics import confusion_matrix, classification_report
-from sklearn.model_selection import train_test_split
-import seaborn as sns
 import pandas as pd
 import numpy as np
 import Recognizer
 import warnings
-from tqdm import tqdm
-from joblib import dump, load
+from joblib import load
 
 warnings.filterwarnings("ignore")
 parser = argparse.ArgumentParser()
@@ -20,14 +15,9 @@ parser.add_argument('--train', action="store_true",
 parser.add_argument('--data_frames', action="store_true",
                     help='Are features of sample extracted? -- if not, we should extract them!')
 # directories
-parser.add_argument('--path_to_metadata', default='/content/metadata.csv',
-                    help='path to the csv that contains path and label of each sample')
 parser.add_argument('--path_to_data', default='/content/drive/MyDrive/Datasets/12words_cleaned.zip',
                     help='base path to dataset!')
-parser.add_argument('--path_to_features', default='/content/drive/MyDrive/Datasets/12words_cleaned.zip',
-                    help='It is the path to features if they are extracted previously!')
-parser.add_argument('--path_to_a_test_file', default='/content/drive/MyDrive/Datasets/12words_cleaned.zip',
-                    help='Just a test file')
+
 parser.add_argument('--exp_dir', default='experiments', help='path to experiments directory')
 parser.add_argument('--checkpoint_filepath', default='/content/exp/01/checkpoints/checkpoint_last.pth', type=str,
                     help='Where the model weights are')
@@ -64,70 +54,27 @@ def show_graphs(history, saving_path, n_epochs):
     plt.show()
 
 
-def setup_dataframe(features, labels, path_to_features):
-    df = pd.DataFrame(features)
-    df['labels'] = labels
-    df.to_csv(path_to_features, index=False)
-    df.sample(frac=1).head()
-
-    return df
-
-
 if not os.path.exists(os.path.join(args.exp_dir, args.exp)):
     os.makedirs(os.path.join(args.exp_dir, args.exp))
     os.makedirs(os.path.join(args.exp_dir, args.exp, 'checkpoints'))
 
-metadata = pd.read_csv(args.path_to_metadata)
+x_train = pd.read_csv(os.path.join(args.path_to_data, 'x_train.csv'))
+x_test = pd.read_csv(os.path.join(args.path_to_data, 'x_test.csv'))
+y_train = pd.read_csv(os.path.join(args.path_to_data, 'y_train.csv'))
+y_test = pd.read_csv(os.path.join(args.path_to_data, 'y_test.csv'))
 
-X, Y = [], []
-if not args.data_frames:
-    print('Extracting features from audio file:')
-    for i, record in tqdm(metadata.iterrows(), total=metadata.shape[0]):
-        path, label = record.path, record.labels
-        features = dp.get_features(os.path.join(args.path_to_data, path))
-        for elem in features:
-            X.append(elem)
-            Y.append(label)
-
-    print(f'Check shapes:\nFeatures: {len(X)}, Labels: {len(Y)}')
-
-if not args.data_frames:
-    Features_data = setup_dataframe(X, Y, args.path_to_features)
-else:
-    Features_data = pd.read_csv(args.path_to_features, index_col=False)
-
-print(Features_data)
-print()
-print()
-print(len(Features_data.iloc[0]))
-
-X = Features_data.iloc[:, :-1].values
-Y = Features_data['labels'].values
-
-encoder = OneHotEncoder()
-Y = encoder.fit_transform(np.array(Y).reshape(-1, 1)).toarray()
-
-nogender_X = np.concatenate((X, X))
-nogender_Y = np.concatenate((Y, Y))
-
-x_train, x_test, y_train, y_test = train_test_split(nogender_X, nogender_Y, random_state=0, test_size=0.20,
-                                                    shuffle=True)
-print('After spiting into train and test parts!!')
-print("x_train's shape: ", x_train.shape, "y_train's shape: ", y_train.shape, "x_test's shape: ", x_test.shape,
-      "y_test's shape: ", y_test.shape)
-
-scaler = StandardScaler()
-
-x_train = scaler.fit_transform(x_train)
-# dump(scaler, 'std_scaler.bin', compress=True)
-x_test = scaler.transform(x_test)
+x_train = np.array(x_train)
+x_test = np.array(x_test)
+y_train = np.array(y_train)
+y_test = np.array(y_test)
 
 x_train = np.expand_dims(x_train, axis=2)
 x_test = np.expand_dims(x_test, axis=2)
-print()
-print('After changing dimensions!')
-print("x_train's shape: ", x_train.shape, "y_train's shape: ", y_train.shape, "x_test's shape: ", x_test.shape,
-      "y_test's shape: ", y_test.shape)
+
+encoder = OneHotEncoder()
+encoder = load(os.path.join(args.path_to_data, 'encoder.bin'))
+
+scaler = load(os.path.join(args.path_to_data, 'std_scaler.bin'))
 
 recognizer_model = Recognizer.Recognizer(x_train.shape[1], X_train=x_train, y_train=y_train, X_test=x_test,
                                          y_test=y_test,
@@ -151,8 +98,8 @@ print('Test accuracy: ', score_on_test_set)
 
 recognizer_model.get_confusion_matrix(x_test, y_test, os.path.join(args.exp_dir, args.exp, 'confusion_matrix.png'))
 
-print("Let's model's performance on some random samples!")
-some_test_samples = metadata.sample(n=5)
-for path, label in zip(some_test_samples.path, some_test_samples.labels):
-    predicted_result = recognizer_model.predict(path)
-    print('The real label is: ', label, ' and the predicted label is: ', predicted_result)
+# print("Let's model's performance on some random samples!")
+# some_test_samples = metadata.sample(n=5)
+# for path, label in zip(some_test_samples.path, some_test_samples.labels):
+#     predicted_result = recognizer_model.predict(path)
+#     print('The real label is: ', label, ' and the predicted label is: ', predicted_result)
